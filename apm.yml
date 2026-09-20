@@ -8,10 +8,8 @@ author: Dominique Broeglin
 targets:
   - copilot
 dependencies:
-  apm:
-    - git: anthropics/skills
-      skills:
-        - skill-creator
+  # skill-creator is maintained in this repository, not deployed by APM.
+  apm: []
   mcp: []
 includes: auto
 scripts: {}

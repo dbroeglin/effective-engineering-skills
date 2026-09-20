@@ -1,3 +1,13 @@
 
 # APM dependencies
 apm_modules/
+
+# Local Python environment and bytecode
+/.venv/
+/.agents/skills/skill-creator/.venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# APM's default generated bundle directory
+/build/

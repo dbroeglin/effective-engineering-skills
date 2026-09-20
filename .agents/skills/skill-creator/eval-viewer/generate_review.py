@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Modified for GitHub Copilot. See ../NOTICE and ../LICENSE.txt.
 """Generate and serve a review page for eval results.
 
 Reads the workspace directory, discovers runs (directories with outputs/),
@@ -7,21 +8,18 @@ a tiny HTTP server. Feedback auto-saves to feedback.json in the workspace.
 
 Usage:
     python generate_review.py <workspace-path> [--port PORT] [--skill-name NAME]
-    python generate_review.py <workspace-path> --previous-feedback /path/to/old/feedback.json
+    python generate_review.py <workspace-path> --previous-workspace /path/to/previous-iteration
 
 No dependencies beyond the Python stdlib are required.
 """
 
 import argparse
 import base64
+import errno
 import json
 import mimetypes
-import os
 import re
-import signal
-import subprocess
 import sys
-import time
 import webbrowser
 from functools import partial
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -61,7 +59,8 @@ def find_runs(workspace: Path) -> list[dict]:
     """Recursively find directories that contain an outputs/ subdirectory."""
     runs: list[dict] = []
     _find_runs_recursive(workspace, workspace, runs)
-    runs.sort(key=lambda r: (r.get("eval_id", float("inf")), r["id"]))
+    runs.sort(key=lambda r: (str(r.get("eval_id")).zfill(12),
+                            0 if re.search(r"(with_skill|new_skill)", r["id"]) else 1, r["id"]))
     return runs
 
 
@@ -87,11 +86,12 @@ def build_run(root: Path, run_dir: Path) -> dict | None:
     prompt = ""
     eval_id = None
 
-    # Try eval_metadata.json
-    for candidate in [run_dir / "eval_metadata.json", run_dir.parent / "eval_metadata.json"]:
-        if candidate.exists():
+    # Repeated runs need one extra ancestor; never inherit outside the workspace.
+    for directory in (run_dir, run_dir.parent, run_dir.parent.parent):
+        candidate = directory / "eval_metadata.json"
+        if candidate.resolve().is_relative_to(root.resolve()) and candidate.exists():
             try:
-                metadata = json.loads(candidate.read_text())
+                metadata = json.loads(candidate.read_text(encoding="utf-8"))
                 prompt = metadata.get("prompt", "")
                 eval_id = metadata.get("eval_id")
             except (json.JSONDecodeError, OSError):
@@ -104,7 +104,7 @@ def build_run(root: Path, run_dir: Path) -> dict | None:
         for candidate in [run_dir / "transcript.md", run_dir / "outputs" / "transcript.md"]:
             if candidate.exists():
                 try:
-                    text = candidate.read_text()
+                    text = candidate.read_text(encoding="utf-8")
                     match = re.search(r"## Eval Prompt\n\n([\s\S]*?)(?=\n##|$)", text)
                     if match:
                         prompt = match.group(1).strip()
@@ -126,12 +126,11 @@ def build_run(root: Path, run_dir: Path) -> dict | None:
             if f.is_file() and f.name not in METADATA_FILES:
                 output_files.append(embed_file(f))
 
-    # Load grading if present
     grading = None
     for candidate in [run_dir / "grading.json", run_dir.parent / "grading.json"]:
         if candidate.exists():
             try:
-                grading = json.loads(candidate.read_text())
+                grading = json.loads(candidate.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError):
                 pass
             if grading:
@@ -153,7 +152,7 @@ def embed_file(path: Path) -> dict:
 
     if ext in TEXT_EXTENSIONS:
         try:
-            content = path.read_text(errors="replace")
+            content = path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             content = "(Error reading file)"
         return {
@@ -222,7 +221,7 @@ def load_previous_iteration(workspace: Path) -> dict[str, dict]:
     feedback_path = workspace / "feedback.json"
     if feedback_path.exists():
         try:
-            data = json.loads(feedback_path.read_text())
+            data = json.loads(feedback_path.read_text(encoding="utf-8"))
             feedback_map = {
                 r["run_id"]: r["feedback"]
                 for r in data.get("reviews", [])
@@ -255,7 +254,7 @@ def generate_html(
 ) -> str:
     """Generate the complete standalone HTML page with embedded data."""
     template_path = Path(__file__).parent / "viewer.html"
-    template = template_path.read_text()
+    template = template_path.read_text(encoding="utf-8")
 
     # Build previous_feedback and previous_outputs maps for the template
     previous_feedback: dict[str, str] = {}
@@ -276,8 +275,13 @@ def generate_html(
     if benchmark:
         embedded["benchmark"] = benchmark
 
-    data_json = json.dumps(embedded)
+    data_json = json.dumps(embedded).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
+    skill_root = Path(__file__).resolve().parents[1]
+    license_text = (skill_root / "LICENSE.txt").read_text(encoding="utf-8")
+    notice = (skill_root / "NOTICE").read_text(encoding="utf-8") if (skill_root / "NOTICE").exists() else ""
+    attribution = "<!-- Template license only; embedded user outputs retain their own licenses.\n" + notice + license_text + "\n-->"
+    template = template.replace("<!--__TEMPLATE_LICENSE__-->", attribution)
     return template.replace("/*__EMBEDDED_DATA__*/", f"const EMBEDDED_DATA = {data_json};")
 
 
@@ -285,25 +289,20 @@ def generate_html(
 # HTTP server (stdlib only, zero dependencies)
 # ---------------------------------------------------------------------------
 
-def _kill_port(port: int) -> None:
-    """Kill any process listening on the given port."""
+class LoopbackReviewServer(HTTPServer):
+    # Windows SO_REUSEADDR can share a live listener's port, not just TIME_WAIT.
+    allow_reuse_address = False
+
+
+def create_server(handler, port: int) -> HTTPServer:
+    """Never terminate another listener or hide non-address-in-use bind errors."""
     try:
-        result = subprocess.run(
-            ["lsof", "-ti", f":{port}"],
-            capture_output=True, text=True, timeout=5,
-        )
-        for pid_str in result.stdout.strip().split("\n"):
-            if pid_str.strip():
-                try:
-                    os.kill(int(pid_str.strip()), signal.SIGTERM)
-                except (ProcessLookupError, ValueError):
-                    pass
-        if result.stdout.strip():
-            time.sleep(0.5)
-    except subprocess.TimeoutExpired:
-        pass
-    except FileNotFoundError:
-        print("Note: lsof not found, cannot check if port is in use", file=sys.stderr)
+        return LoopbackReviewServer(("127.0.0.1", port), handler)
+    except OSError as exc:
+        if exc.errno not in (errno.EADDRINUSE, 10048) and getattr(exc, "winerror", None) != 10048:
+            raise
+        return LoopbackReviewServer(("127.0.0.1", 0), handler)
+
 
 class ReviewHandler(BaseHTTPRequestHandler):
     """Serves the review HTML and handles feedback saves.
@@ -336,7 +335,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
             benchmark = None
             if self.benchmark_path and self.benchmark_path.exists():
                 try:
-                    benchmark = json.loads(self.benchmark_path.read_text())
+                    benchmark = json.loads(self.benchmark_path.read_text(encoding="utf-8"))
                 except (json.JSONDecodeError, OSError):
                     pass
             html = generate_html(runs, self.skill_name, self.previous, benchmark)
@@ -366,7 +365,7 @@ class ReviewHandler(BaseHTTPRequestHandler):
                 data = json.loads(body)
                 if not isinstance(data, dict) or "reviews" not in data:
                     raise ValueError("Expected JSON object with 'reviews' key")
-                self.feedback_path.write_text(json.dumps(data, indent=2) + "\n")
+                self.feedback_path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
                 resp = b'{"ok":true}'
                 self.send_response(200)
             except (json.JSONDecodeError, OSError, ValueError) as e:
@@ -385,6 +384,8 @@ class ReviewHandler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description="Generate and serve eval review")
     parser.add_argument("workspace", type=Path, help="Path to workspace directory")
     parser.add_argument("--port", "-p", type=int, default=3117, help="Server port (default: 3117)")
@@ -424,29 +425,22 @@ def main() -> None:
     benchmark = None
     if benchmark_path and benchmark_path.exists():
         try:
-            benchmark = json.loads(benchmark_path.read_text())
+            benchmark = json.loads(benchmark_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
 
     if args.static:
         html = generate_html(runs, skill_name, previous, benchmark)
         args.static.parent.mkdir(parents=True, exist_ok=True)
-        args.static.write_text(html)
+        args.static.write_text(html, encoding="utf-8")
         print(f"\n  Static viewer written to: {args.static}\n")
         sys.exit(0)
 
-    # Kill any existing process on the target port
-    port = args.port
-    _kill_port(port)
     handler = partial(ReviewHandler, workspace, skill_name, feedback_path, previous, benchmark_path)
-    try:
-        server = HTTPServer(("127.0.0.1", port), handler)
-    except OSError:
-        # Port still in use after kill attempt — find a free one
-        server = HTTPServer(("127.0.0.1", 0), handler)
-        port = server.server_address[1]
+    server = create_server(handler, args.port)
+    port = server.server_address[1]
 
-    url = f"http://localhost:{port}"
+    url = f"http://127.0.0.1:{port}"
     print(f"\n  Eval Viewer")
     print(f"  ─────────────────────────────────")
     print(f"  URL:       {url}")
@@ -458,12 +452,15 @@ def main() -> None:
         print(f"  Benchmark: {benchmark_path}")
     print(f"\n  Press Ctrl+C to stop.\n")
 
-    webbrowser.open(url)
-
     try:
+        try:
+            webbrowser.open(url)
+        except webbrowser.Error:
+            print("Browser unavailable; open the URL above or use --static.", file=sys.stderr)
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopped.")
+    finally:
         server.server_close()
 
 
