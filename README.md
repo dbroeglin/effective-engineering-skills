@@ -4,6 +4,17 @@ A repository-maintained Copilot port of
 [`skill-creator`](.agents/skills/skill-creator/SKILL.md), retaining its name and
 `.agents\skills\skill-creator` location.
 
+## Skills in this repository
+
+- **[`skill-creator`](.agents/skills/skill-creator/SKILL.md)** — the maintained
+  Copilot port of Anthropic's skill, described below.
+- **[`effective-writing`](.agents/skills/effective-writing/SKILL.md)** — an
+  independently-authored skill for writing clear, effective documentation,
+  corporate/business documents, and LinkedIn or other social posts. Its guidance is
+  an original synthesis of public-domain and openly-licensed writing standards; see
+  its [`references/sources.md`](.agents/skills/effective-writing/references/sources.md)
+  for attributions. Apache-2.0; not part of the upstream `skill-creator` port.
+
 ## Prerequisites and use
 
 - **Python 3.10+**, **PyYAML** from the skill's `requirements.txt`, and **Git** on
