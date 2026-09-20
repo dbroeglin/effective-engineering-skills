@@ -32,18 +32,25 @@ is good; manipulation reads as spam and ages badly.
   rest for next time.
 - **Tell, then land.** A short story or concrete example, then the takeaway or
   lesson. People remember specifics and stories, not abstractions.
-- **Close with an invitation.** End with a genuine question or a light call to
-  action ("How do you handle this?") to open a conversation. One CTA, not three.
+- **End where the point lands.** Stop once you've made your point. If a question
+  genuinely invites a useful reply, ask one — but a reflex "What do you think?" on
+  every post is its own cliché. One invitation at most, never three.
 
-A common, effective flow: **Hook → short story or insight (a few tight blocks) →
-the lesson → a question.**
+One workable shape, *not* a mandatory template, is **hook → short story or insight
+→ the takeaway**, sometimes closing on a question. Vary it. If every post you write
+has the identical skeleton, readers feel the formula even when they can't name it.
 
 ## Voice
 
 Write like a smart person talking, not a press release. First person, conversational,
-and specific to your real experience. Credibility comes from concrete detail and
-genuine perspective — not from buzzwords or borrowed authority. Read it aloud; if it
-sounds like a brochure, rewrite it.
+and specific to the author's real experience. Credibility comes from concrete detail
+and genuine perspective, not from buzzwords or borrowed authority. Read it aloud; if
+it sounds like a brochure, rewrite it.
+
+Write only from what the author actually did, thinks, and knows. A specific story or
+number is powerful, but never invent one, sharpen an opinion the author doesn't hold,
+or dramatize a scene that didn't happen just to manufacture a hook. If you don't have
+the raw material, ask for it. A hollow post that reads well still rings false.
 
 ## Hashtags and tagging
 
@@ -76,9 +83,11 @@ sounds like a brochure, rewrite it.
   >
   > Same job. Completely different ownership.
   >
-  > How do you help your team see the bigger 'why' behind their work?
+  > I stopped asking how to motivate people. I started asking what story they tell
+  > about their work.
   >
   > #leadership #culture
 
-The rewrite opens with a hook, tells one concrete story, makes a single point, and
-ends with a real question — in a fraction of the words.
+The rewrite opens with a hook, tells one concrete story, and lands on a single
+point, in a fraction of the words. Note it doesn't end on a reflex question; the
+insight carries the close on its own.
