@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
+# Modified for GitHub Copilot; see ../NOTICE for upstream provenance.
 """
 Quick validation script for skills - minimal version
 """
 
 import sys
-import os
 import re
 import yaml
 from pathlib import Path
@@ -15,16 +15,19 @@ def validate_skill(skill_path):
 
     # Check SKILL.md exists
     skill_md = skill_path / 'SKILL.md'
-    if not skill_md.exists():
+    if not skill_md.is_file():
         return False, "SKILL.md not found"
 
     # Read and validate frontmatter
-    content = skill_md.read_text()
+    try:
+        content = skill_md.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeError) as exc:
+        return False, str(exc)
     if not content.startswith('---'):
         return False, "No YAML frontmatter found"
 
     # Extract frontmatter
-    match = re.match(r'^---\n(.*?)\n---', content, re.DOTALL)
+    match = re.match(r'^---\n(.*?)\n---(?:\n|$)', content, re.DOTALL)
     if not match:
         return False, "Invalid frontmatter format"
 
@@ -38,14 +41,17 @@ def validate_skill(skill_path):
     except yaml.YAMLError as e:
         return False, f"Invalid YAML in frontmatter: {e}"
 
-    # Define allowed properties
-    ALLOWED_PROPERTIES = {'name', 'description', 'license', 'allowed-tools', 'metadata', 'compatibility'}
+    # Include documented Copilot CLI skill fields, not arbitrary agent extensions.
+    ALLOWED_PROPERTIES = {
+        'name', 'description', 'license', 'allowed-tools', 'metadata', 'compatibility',
+        'argument-hint', 'user-invocable', 'disable-model-invocation',
+    }
 
     # Check for unexpected properties (excluding nested keys under metadata)
     unexpected_keys = set(frontmatter.keys()) - ALLOWED_PROPERTIES
     if unexpected_keys:
         return False, (
-            f"Unexpected key(s) in SKILL.md frontmatter: {', '.join(sorted(unexpected_keys))}. "
+            f"Unexpected key(s) in SKILL.md frontmatter: {', '.join(sorted(map(str, unexpected_keys)))}. "
             f"Allowed properties are: {', '.join(sorted(ALLOWED_PROPERTIES))}"
         )
 
@@ -60,6 +66,8 @@ def validate_skill(skill_path):
     if not isinstance(name, str):
         return False, f"Name must be a string, got {type(name).__name__}"
     name = name.strip()
+    if not name:
+        return False, "Name must not be empty"
     if name:
         # Check naming convention (kebab-case: lowercase with hyphens)
         if not re.match(r'^[a-z0-9-]+$', name):
@@ -75,6 +83,8 @@ def validate_skill(skill_path):
     if not isinstance(description, str):
         return False, f"Description must be a string, got {type(description).__name__}"
     description = description.strip()
+    if not description:
+        return False, "Description must not be empty"
     if description:
         # Check for angle brackets
         if '<' in description or '>' in description:
@@ -97,7 +107,7 @@ if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python quick_validate.py <skill_directory>")
         sys.exit(1)
-    
+
     valid, message = validate_skill(sys.argv[1])
     print(message)
     sys.exit(0 if valid else 1)

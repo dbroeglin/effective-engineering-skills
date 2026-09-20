@@ -1,6 +1,12 @@
+> **Modified for GitHub Copilot.** See `../NOTICE` and `../LICENSE.txt` for attribution and Apache-2.0 licensing.
+
 # JSON Schemas
 
 This document defines the JSON schemas used by skill-creator.
+
+Run artifacts may live directly in `eval-*/with_skill/` (the original workflow), in
+`eval-*/with_skill/run-N/`, or under legacy `runs/eval-*/` directories. Keep
+`eval_metadata.json` in the eval directory and `grading.json`/`timing.json` beside `outputs/`.
 
 ---
 
@@ -17,7 +23,7 @@ Defines the evals for a skill. Located at `evals/evals.json` within the skill di
       "prompt": "User's example prompt",
       "expected_output": "Description of expected result",
       "files": ["evals/files/sample1.pdf"],
-      "expectations": [
+      "assertions": [
         "The output includes X",
         "The skill used script Y"
       ]
@@ -32,7 +38,7 @@ Defines the evals for a skill. Located at `evals/evals.json` within the skill di
 - `evals[].prompt`: The task to execute
 - `evals[].expected_output`: Human-readable description of success
 - `evals[].files`: Optional list of input file paths (relative to skill root)
-- `evals[].expectations`: List of verifiable statements
+- `evals[].assertions`: List of verifiable, nonempty strings. Legacy input `expectations` is accepted; if both fields are supplied, they must agree. Grading output remains named `expectations`.
 
 ---
 
@@ -122,7 +128,7 @@ Output from the grader agent. Located at `<run-dir>/grading.json`.
   "timing": {
     "executor_duration_seconds": 165.0,
     "grader_duration_seconds": 26.0,
-    "total_duration_seconds": 191.0
+    "total_duration_seconds": 165.0
   },
   "claims": [
     {
@@ -189,7 +195,7 @@ Output from the executor agent. Located at `<run-dir>/outputs/metrics.json`.
 - `total_steps`: Number of major execution steps
 - `files_created`: List of output files created
 - `errors_encountered`: Number of errors during execution
-- `output_chars`: Total character count of output files
+- `output_chars`: Total character count of output files, never a token estimate
 - `transcript_chars`: Character count of transcript
 
 ---
@@ -198,21 +204,28 @@ Output from the executor agent. Located at `<run-dir>/outputs/metrics.json`.
 
 Wall clock timing for a run. Located at `<run-dir>/timing.json`.
 
-**How to capture:** When a subagent task completes, the task notification includes `total_tokens` and `duration_ms`. Save these immediately — they are not persisted anywhere else and cannot be recovered after the fact.
+**How to capture:** Preserve measured executor duration and runtime usage from the
+Copilot CLI runner, or real native-subagent completion metrics when available.
+Unavailable metrics stay `null`; do not invent zeros or infer tokens from characters.
 
 ```json
 {
-  "total_tokens": 84852,
+  "schema_version": 2,
+  "total_tokens": null,
   "duration_ms": 23332,
-  "total_duration_seconds": 23.3,
-  "executor_start": "2026-01-15T10:30:00Z",
-  "executor_end": "2026-01-15T10:32:45Z",
-  "executor_duration_seconds": 165.0,
-  "grader_start": "2026-01-15T10:32:46Z",
-  "grader_end": "2026-01-15T10:33:12Z",
-  "grader_duration_seconds": 26.0
+  "total_duration_seconds": 23.332,
+  "executor_duration_seconds": 23.332,
+  "grader_duration_seconds": 26.0,
+  "metrics_source": "executor-wall-clock",
+  "metrics_complete": false
 }
 ```
+
+New `total_duration_seconds` equals executor wall clock (`duration_ms / 1000`), not
+executor plus grader time. Prefer explicit executor duration when reading legacy
+totals. Copy the runner's token total/provenance without re-adding cache or reasoning
+tokens. `metrics_complete: false` excludes partial tokens from aggregation. These
+additional provenance fields are optional for existing artifacts.
 
 ---
 
@@ -225,8 +238,8 @@ Output from Benchmark mode. Located at `benchmarks/<timestamp>/benchmark.json`.
   "metadata": {
     "skill_name": "pdf",
     "skill_path": "/path/to/pdf",
-    "executor_model": "claude-sonnet-4-20250514",
-    "analyzer_model": "most-capable-model",
+    "executor_model": null,
+    "analyzer_model": null,
     "timestamp": "2026-01-15T10:30:00Z",
     "evals_run": [1, 2, 3],
     "runs_per_configuration": 3
@@ -288,19 +301,25 @@ Output from Benchmark mode. Located at `benchmarks/<timestamp>/benchmark.json`.
 **Fields:**
 - `metadata`: Information about the benchmark run
   - `skill_name`: Name of the skill
+  - `executor_model`, `analyzer_model`: Actual recorded model IDs, or `null` when unavailable
   - `timestamp`: When the benchmark was run
   - `evals_run`: List of eval names or IDs
-  - `runs_per_configuration`: Number of runs per config (e.g. 3)
+  - `runs_per_configuration`: Observed graded repeats per eval/configuration, or `null` when unequal
 - `runs[]`: Individual run results
   - `eval_id`: Numeric eval identifier
   - `eval_name`: Human-readable eval name (used as section header in the viewer)
-  - `configuration`: Must be `"with_skill"` or `"without_skill"` (the viewer uses this exact string for grouping and color coding)
+  - `configuration`: `with_skill` (or legacy `new_skill`) and baseline `without_skill` or `old_skill`
   - `run_number`: Integer run number (1, 2, 3...)
   - `result`: Nested object with `pass_rate`, `passed`, `total`, `time_seconds`, `tokens`, `errors`
 - `run_summary`: Statistical aggregates per configuration
   - `with_skill` / `without_skill`: Each contains `pass_rate`, `time_seconds`, `tokens` objects with `mean` and `stddev` fields
-  - `delta`: Difference strings like `"+0.50"`, `"+13.0"`, `"+1700"`
+  - `delta`: Primary-minus-baseline strings like `"+0.50"`, `"+13.0"`, `"+1700"`, or `null` when a metric is unavailable
 - `notes`: Freeform observations from the analyzer
+
+Missing measurements and statistics with no measured samples are `null`, not zero.
+An optional run-local `run.json` supplies `model_actual`; unknown/mixed actual models
+remain `null` in benchmark metadata. Aggregate comparable runs from one iteration;
+do not combine different execution backends, models, or isolation guarantees.
 
 **Important:** The viewer reads these field names exactly. Using `config` instead of `configuration`, or putting `pass_rate` at the top level of a run instead of nested under `result`, will cause the viewer to show empty/zero values. Always reference this schema when generating benchmark.json manually.
 

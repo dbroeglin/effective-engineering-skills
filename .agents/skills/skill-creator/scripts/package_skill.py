@@ -1,136 +1,117 @@
 #!/usr/bin/env python3
+# Modified for GitHub Copilot; see ../NOTICE for upstream provenance.
+"""Create an ordinary ZIP containing a skill and its own resources/legal files.
+
+Run ``python -m scripts.package_skill <skill> [output-directory]`` from the
+creator's root, or run this script by absolute path from another directory.
+Output defaults to the current directory, outside the skill. Extract the ZIP
+into a persistent Copilot skill root; this is not a native installer.
+Known generated/credential paths are excluded, but review contents before sharing.
 """
-Skill Packager - Creates a distributable .skill file of a skill folder
 
-Usage:
-    python utils/package_skill.py <path/to/skill-folder> [output-directory]
-
-Example:
-    python utils/package_skill.py skills/public/my-skill
-    python utils/package_skill.py skills/public/my-skill ./dist
-"""
-
+import argparse
 import fnmatch
+import os
+import stat
 import sys
 import zipfile
 from pathlib import Path
-from scripts.quick_validate import validate_skill
 
-# Patterns to exclude when packaging skills.
-EXCLUDE_DIRS = {"__pycache__", "node_modules"}
-EXCLUDE_GLOBS = {"*.pyc"}
-EXCLUDE_FILES = {".DS_Store"}
-# Directories excluded only at the skill root (not when nested deeper).
-ROOT_EXCLUDE_DIRS = {"evals"}
+if __package__:
+    from .quick_validate import validate_skill
+else:
+    from quick_validate import validate_skill
+
+EXCLUDE_DIRS = {
+    "__pycache__", "node_modules", ".git", ".venv",
+    ".copilot", ".ssh", ".aws", ".azure", "credentials", "secrets",
+}
+EXCLUDE_GLOBS = {
+    "*.pyc", ".env", ".env.*", "*.key", "*.pem", "credentials.*", "secrets.*",
+}
+EXCLUDE_FILES = {".ds_store", ".git-credentials", ".netrc", ".npmrc"}
+ROOT_EXCLUDE_DIRS = {
+    "evals", "tests", "outputs", "artifacts", "profiles", "runtime", "runtime-profiles", "dist",
+}
 
 
 def should_exclude(rel_path: Path) -> bool:
-    """Check if a path should be excluded from packaging."""
-    parts = rel_path.parts
-    if any(part in EXCLUDE_DIRS for part in parts):
+    """Check a path relative to the skill's parent (first part is its name)."""
+    parts = [part.lower() for part in rel_path.parts[1:]]
+    if not parts:
+        return False
+    if any(part in EXCLUDE_DIRS for part in parts) or parts[0] in ROOT_EXCLUDE_DIRS:
         return True
-    # rel_path is relative to skill_path.parent, so parts[0] is the skill
-    # folder name and parts[1] (if present) is the first subdir.
-    if len(parts) > 1 and parts[1] in ROOT_EXCLUDE_DIRS:
-        return True
-    name = rel_path.name
-    if name in EXCLUDE_FILES:
-        return True
-    return any(fnmatch.fnmatch(name, pat) for pat in EXCLUDE_GLOBS)
+    return parts[-1] in EXCLUDE_FILES or any(
+        fnmatch.fnmatchcase(parts[-1], pattern) for pattern in EXCLUDE_GLOBS)
+
+
+def _reject_link(path: Path) -> None:
+    metadata = path.lstat()
+    if stat.S_ISLNK(metadata.st_mode) or (
+        getattr(metadata, "st_file_attributes", 0)
+        & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+    ):
+        raise ValueError(f"Symbolic links/reparse points are not supported: {path}")
+
+
+def _walk_error(error):
+    raise error
 
 
 def package_skill(skill_path, output_dir=None):
-    """
-    Package a skill folder into a .skill file.
-
-    Args:
-        skill_path: Path to the skill folder
-        output_dir: Optional output directory for the .skill file (defaults to current directory)
-
-    Returns:
-        Path to the created .skill file, or None if error
-    """
-    skill_path = Path(skill_path).resolve()
-
-    # Validate skill folder exists
-    if not skill_path.exists():
-        print(f"❌ Error: Skill folder not found: {skill_path}")
-        return None
-
-    if not skill_path.is_dir():
-        print(f"❌ Error: Path is not a directory: {skill_path}")
-        return None
-
-    # Validate SKILL.md exists
-    skill_md = skill_path / "SKILL.md"
-    if not skill_md.exists():
-        print(f"❌ Error: SKILL.md not found in {skill_path}")
-        return None
-
-    # Run validation before packaging
-    print("🔍 Validating skill...")
-    valid, message = validate_skill(skill_path)
-    if not valid:
-        print(f"❌ Validation failed: {message}")
-        print("   Please fix the validation errors before packaging.")
-        return None
-    print(f"✅ {message}\n")
-
-    # Determine output location
-    skill_name = skill_path.name
-    if output_dir:
-        output_path = Path(output_dir).resolve()
-        output_path.mkdir(parents=True, exist_ok=True)
-    else:
-        output_path = Path.cwd()
-
-    skill_filename = output_path / f"{skill_name}.skill"
-
-    # Create the .skill file (zip format)
+    """Return the created ZIP path, or None with a diagnostic on failure."""
     try:
-        with zipfile.ZipFile(skill_filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
-            # Walk through the skill directory, excluding build artifacts
-            for file_path in skill_path.rglob('*'):
-                if not file_path.is_file():
-                    continue
-                arcname = file_path.relative_to(skill_path.parent)
-                if should_exclude(arcname):
-                    print(f"  Skipped: {arcname}")
-                    continue
-                zipf.write(file_path, arcname)
-                print(f"  Added: {arcname}")
+        skill_path = Path(skill_path).expanduser().absolute()
+        _reject_link(skill_path)
+        skill_path = skill_path.resolve(strict=True)
+        if not skill_path.is_dir():
+            raise ValueError(f"Not a skill directory: {skill_path}")
+        _reject_link(skill_path / "SKILL.md")
+        valid, message = validate_skill(skill_path)
+        if not valid:
+            raise ValueError(f"Validation failed: {message}")
+        output_path = Path(output_dir if output_dir is not None else Path.cwd()).expanduser().resolve()
+        if output_path.is_relative_to(skill_path):
+            raise ValueError("Output directory must be outside the skill directory (no self-inclusion)")
+        destination = output_path / f"{skill_path.name}.zip"
+        if destination.exists() or destination.is_symlink():
+            _reject_link(destination)
 
-        print(f"\n✅ Successfully packaged skill to: {skill_filename}")
-        return skill_filename
-
-    except Exception as e:
-        print(f"❌ Error creating .skill file: {e}")
+        files = []
+        for directory, subdirs, names in os.walk(skill_path, onerror=_walk_error, followlinks=False):
+            directory = Path(directory)
+            subdirs[:] = [name for name in subdirs
+                          if not should_exclude((directory / name).relative_to(skill_path.parent))]
+            for name in subdirs + names:
+                path = directory / name
+                if should_exclude(path.relative_to(skill_path.parent)):
+                    continue
+                _reject_link(path)
+                if path.is_file():
+                    files.append(path)
+        if destination.exists() and any(path.samefile(destination) for path in files):
+            raise ValueError("Destination archive aliases a source file")
+        output_path.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(files):
+                _reject_link(path)
+                archive.write(path, path.relative_to(skill_path.parent).as_posix())
+        print(f"Packaged skill to: {destination}")
+        return destination
+    except (OSError, ValueError, RuntimeError, zipfile.BadZipFile) as exc:
+        print(f"Error packaging skill: {exc}", file=sys.stderr)
         return None
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("Usage: python utils/package_skill.py <path/to/skill-folder> [output-directory]")
-        print("\nExample:")
-        print("  python utils/package_skill.py skills/public/my-skill")
-        print("  python utils/package_skill.py skills/public/my-skill ./dist")
-        sys.exit(1)
-
-    skill_path = sys.argv[1]
-    output_dir = sys.argv[2] if len(sys.argv) > 2 else None
-
-    print(f"📦 Packaging skill: {skill_path}")
-    if output_dir:
-        print(f"   Output directory: {output_dir}")
-    print()
-
-    result = package_skill(skill_path, output_dir)
-
-    if result:
-        sys.exit(0)
-    else:
-        sys.exit(1)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("skill_path", type=Path)
+    parser.add_argument("output_directory", nargs="?", type=Path)
+    args = parser.parse_args(argv)
+    result = package_skill(args.skill_path, args.output_directory)
+    return 0 if result is not None else 1
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

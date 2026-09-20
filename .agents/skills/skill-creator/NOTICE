@@ -1,0 +1,26 @@
+skill-creator: repository-maintained GitHub Copilot adaptation
+
+Upstream project: anthropics/skills
+Upstream directory: skills/skill-creator
+Imported revision: 41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f
+Source: https://github.com/anthropics/skills/tree/41bbe19d1a1a7eaab5e7bb9050a417e5c6cffc8f/skills/skill-creator
+Original copyright: Copyright 2026 Anthropic, PBC.
+
+The upstream work is licensed under the Apache License, Version 2.0.
+The complete, unchanged license and original copyright are in LICENSE.txt.
+
+Modified for GitHub Copilot by contributors to this repository.
+The modifications replace Claude-specific execution and instructions with
+Copilot CLI-first workflows and explicit native-subagent fallback; adapt
+execution isolation, diagnostics, evaluation and review artifacts, portable
+packaging, and regression tests; and make the skill repository-maintained
+rather than an APM-managed upstream deployment. These modifications are also
+licensed under the Apache License, Version 2.0.
+
+This informational NOTICE was added by this repository's contributors.
+The complete upstream tree at the imported revision contained no applicable
+NOTICE in the repository root, skills directory, or skill-creator subtree.
+This document does not purport to be an upstream NOTICE.
+
+Anthropic, GitHub, and Copilot are named only for provenance and compatibility.
+This fork is not an official release of, or endorsed by, Anthropic or GitHub.

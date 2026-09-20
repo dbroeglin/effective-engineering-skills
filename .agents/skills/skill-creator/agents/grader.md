@@ -1,3 +1,5 @@
+> **Modified for GitHub Copilot.** See `../NOTICE` and `../LICENSE.txt` for upstream attribution and Apache-2.0 licensing.
+
 # Grader Agent
 
 Evaluate expectations against an execution transcript and outputs.
@@ -12,7 +14,7 @@ You have two jobs: grade the outputs, and critique the evals themselves. A passi
 
 You receive these parameters in your prompt:
 
-- **expectations**: List of expectations to evaluate (strings)
+- **assertions**: List of expectations to evaluate (strings). Accept legacy input **expectations** as an alias; if both are supplied they must agree.
 - **transcript_path**: Path to the execution transcript (markdown file)
 - **outputs_dir**: Directory containing output files from execution
 
@@ -103,6 +105,8 @@ Save results to `{outputs_dir}/../grading.json` (sibling to outputs_dir).
 1. If `{outputs_dir}/metrics.json` exists, read it and include in grading output
 2. If `{outputs_dir}/../timing.json` exists, read it and include timing data
 
+Use measured telemetry only: unavailable tokens/timing stay `null`, never output-character estimates or invented zeros. Preserve token totals and provenance from the runner; cached and reasoning tokens must not be added again. Keep executor and grader durations separate. Do not grade an execution that failed or is incomplete.
+
 ## Output Format
 
 Write a JSON file with this structure:
@@ -147,7 +151,7 @@ Write a JSON file with this structure:
   "timing": {
     "executor_duration_seconds": 165.0,
     "grader_duration_seconds": 26.0,
-    "total_duration_seconds": 191.0
+    "total_duration_seconds": 165.0
   },
   "claims": [
     {
@@ -195,11 +199,11 @@ Write a JSON file with this structure:
   - **total**: Total expectations evaluated
   - **pass_rate**: Fraction passed (0.0 to 1.0)
 - **execution_metrics**: Copied from executor's metrics.json (if available)
-  - **output_chars**: Total character count of output files (proxy for tokens)
+  - **output_chars**: Total character count of output files; never a token measurement
   - **transcript_chars**: Character count of transcript
 - **timing**: Wall clock timing from timing.json (if available)
-  - **executor_duration_seconds**: Time spent in executor subagent
-  - **total_duration_seconds**: Total elapsed time for the run
+  - **executor_duration_seconds**: Time spent in the executor
+  - **total_duration_seconds**: Executor wall-clock duration, excluding separately measured grader time
 - **claims**: Extracted and verified claims from the output
   - **claim**: The statement being verified
   - **type**: "factual", "process", or "quality"
